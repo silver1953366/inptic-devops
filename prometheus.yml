@@ -7,7 +7,8 @@ scrape_configs:
     static_configs:
       - targets: ['app:5000']
 
-  # Métriques de l'infrastructure (CPU/RAM des conteneurs)
+  # Métriques de l'infrastructure via cAdvisor
+  # On utilise le port 8080 car c'est le port interne au réseau Docker
   - job_name: 'containers-stats'
     static_configs:
       - targets: ['cadvisor:8080']
