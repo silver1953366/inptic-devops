@@ -1,208 +1,132 @@
-from flask import Flask, render_template_string
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from flask import Flask, render_template_string, request, redirect, url_for
+from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 
-# Compteurs Prometheus avec labels
-STUDENT_ACTIONS = Counter('student_mgmt_actions', 'Actions de gestion INPTIC', ['action_type'])
+# --- MÉTRIQUES ---
+STUDENT_COUNT = Gauge('inptic_student_current_total', 'Nombre total d\'étudiants')
+ACTIONS_TOTAL = Counter('inptic_actions_total', 'Interactions', ['type'])
+
+# --- DATA ---
+students_db = [{"id": 1, "nom": "MINKO", "prenom": "Marc", "filiere": "Génie Info"}]
+next_id = 2
+STUDENT_COUNT.set(len(students_db))
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>INPTIC | Management System v3</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --p: #0f172a; --s: #3b82f6; --acc: #10b981; --danger: #ef4444; }
+        body { font-family: 'Inter', sans-serif; background: #f8fafc; margin: 0; display: flex; height: 100vh; color: #1e293b; }
+        .sidebar { width: 280px; background: var(--p); color: white; padding: 30px 20px; }
+        .main { flex: 1; padding: 40px; overflow-y: auto; }
+        .glass-card { background: white; border-radius: 16px; padding: 25px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0; margin-bottom: 30px; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        input, select { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; flex: 1; min-width: 150px; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; color: white; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-add { background: var(--s); }
+        .btn-update { background: #f59e0b; }
+        .btn-del { background: var(--danger); }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; }
+        th { background: #f1f5f9; padding: 15px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 15px; border-bottom: 1px solid #f1f5f9; }
+        .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+        .stat-box { background: var(--s); color: white; padding: 15px 25px; border-radius: 12px; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2 style="color: var(--s)">INPTIC <span style="color:white">DEV</span></h2>
+        <p style="opacity: 0.6; font-size: 0.8rem; margin-bottom: 40px;">Infrastructure Monitoring & CI/CD</p>
+        <div class="stat-box">
+            <small>Effectif Étudiant</small>
+            <h1 style="margin:0">{{ count }}</h1>
+        </div>
+    </div>
+    <div class="main">
+        <h1>Dashboard Administration</h1>
+        
+        <div class="glass-card">
+            <h3><i class="fas fa-user-edit"></i> Enregistrement / Modification</h3>
+            <form action="/save" method="post" class="input-group">
+                <input type="hidden" name="id" value="{{ edit_student.id if edit_student else '' }}">
+                <input type="text" name="nom" placeholder="Nom" value="{{ edit_student.nom if edit_student else '' }}" required>
+                <input type="text" name="prenom" placeholder="Prénom" value="{{ edit_student.prenom if edit_student else '' }}" required>
+                <select name="filiere">
+                    <option value="Génie Info" {{ 'selected' if edit_student and edit_student.filiere == 'Génie Info' }}>Génie Info</option>
+                    <option value="Cyber" {{ 'selected' if edit_student and edit_student.filiere == 'Cyber' }}>Cyber</option>
+                </select>
+                <button type="submit" class="btn {{ 'btn-update' if edit_student else 'btn-add' }}">
+                    <i class="fas {{ 'fa-sync' if edit_student else 'fa-plus' }}"></i>
+                    {{ 'Mettre à jour' if edit_student else 'Ajouter' }}
+                </button>
+                {% if edit_student %}<a href="/" style="padding:12px; color: grey;">Annuler</a>{% endif %}
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <table>
+                <thead><tr><th>ID</th><th>Étudiant</th><th>Filière</th><th>Actions</th></tr></thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td>#{{ s.id }}</td>
+                        <td><strong>{{ s.nom }}</strong> {{ s.prenom }}</td>
+                        <td>{{ s.filiere }}</td>
+                        <td>
+                            <a href="/edit/{{ s.id }}" class="btn" style="background:#f1f5f9; color:#475569; padding:8px;"><i class="fas fa-pen"></i></a>
+                            <form action="/delete/{{ s.id }}" method="post" style="display:inline;">
+                                <button class="btn btn-del" style="padding:8px;"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 @app.route('/')
 def home():
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>INPTIC | Admin Portal</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-        <style>
-            :root {
-                --primary: #1e3c72;
-                --secondary: #2a5298;
-                --success: #2ecc71;
-                --info: #3498db;
-                --warning: #f1c40f;
-                --danger: #e74c3c;
-                --light: #f8f9fa;
-            }
+    return render_template_string(HTML_TEMPLATE, students=students_db, count=len(students_db), edit_student=None)
 
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            
-            body { 
-                font-family: 'Segoe UI', sans-serif; 
-                background: #eef2f7; 
-                display: flex; 
-                height: 100vh;
-                overflow: hidden;
-            }
+@app.route('/edit/<int:uid>')
+def edit(uid):
+    target = next((s for s in students_db if s['id'] == uid), None)
+    return render_template_string(HTML_TEMPLATE, students=students_db, count=len(students_db), edit_student=target)
 
-            /* Sidebar */
-            .sidebar {
-                width: 260px;
-                background: var(--primary);
-                color: white;
-                padding: 20px;
-                display: flex;
-                flex-direction: column;
-                animation: slideIn 0.8s ease;
-            }
+@app.route('/save', methods=['POST'])
+def save():
+    global next_id
+    uid = request.form.get('id')
+    nom, prenom, fil = request.form.get('nom').upper(), request.form.get('prenom'), request.form.get('filiere')
+    
+    if uid: # Modification
+        for s in students_db:
+            if s['id'] == int(uid):
+                s.update({"nom": nom, "prenom": prenom, "filiere": fil})
+        ACTIONS_TOTAL.labels(type='modification').inc()
+    else: # Création
+        students_db.append({"id": next_id, "nom": nom, "prenom": prenom, "filiere": fil})
+        next_id += 1
+        STUDENT_COUNT.set(len(students_db))
+        ACTIONS_TOTAL.labels(type='inscription').inc()
+    return redirect(url_for('home'))
 
-            .sidebar h2 { font-size: 1.5rem; margin-bottom: 30px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
-            .nav-link { 
-                padding: 15px; color: rgba(255,255,255,0.7); text-decoration: none; 
-                display: flex; align-items: center; border-radius: 10px; transition: 0.3s;
-            }
-            .nav-link:hover { background: rgba(255,255,255,0.1); color: white; transform: translateX(5px); }
-            .nav-link i { margin-right: 10px; }
-
-            /* Main Content */
-            .main { flex: 1; padding: 40px; overflow-y: auto; }
-            
-            .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-            .header h1 { color: var(--primary); font-size: 2rem; }
-
-            /* Cards Container */
-            .grid { 
-                display: grid; 
-                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
-                gap: 25px; 
-                animation: fadeInUp 1s ease;
-            }
-
-            .card {
-                background: white;
-                padding: 25px;
-                border-radius: 20px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-                text-align: center;
-                transition: 0.4s;
-                border: 1px solid transparent;
-            }
-
-            .card:hover { 
-                transform: translateY(-10px); 
-                box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-                border-color: var(--secondary);
-            }
-
-            .icon-box { 
-                width: 60px; height: 60px; border-radius: 15px; 
-                display: flex; align-items: center; justify-content: center; 
-                margin: 0 auto 20px; font-size: 1.5rem;
-            }
-
-            /* Actions colors */
-            .bg-add { background: #e8f5e9; color: var(--success); }
-            .bg-view { background: #e3f2fd; color: var(--info); }
-            .bg-edit { background: #fffde7; color: var(--warning); }
-            .bg-del { background: #ffebee; color: var(--danger); }
-
-            .btn-action {
-                background: none; border: none; cursor: pointer;
-                width: 100%; height: 100%; display: block;
-                font-family: inherit; font-size: 1.1rem; font-weight: 600;
-                color: #333;
-            }
-
-            /* Animations */
-            @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
-            @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-
-            .status-bar {
-                margin-top: 40px;
-                padding: 20px;
-                background: white;
-                border-radius: 15px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 15px;
-            }
-
-            .pulse {
-                width: 12px; height: 12px; background: var(--success);
-                border-radius: 50%; box-shadow: 0 0 10px var(--success);
-                animation: pulse-animation 2s infinite;
-            }
-
-            @keyframes pulse-animation {
-                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7); }
-                70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(46, 204, 113, 0); }
-                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <h2>INPTIC OS</h2>
-            <a href="#" class="nav-link"><i class="fas fa-home"></i> Dashboard</a>
-            <a href="#" class="nav-link"><i class="fas fa-user-graduate"></i> Étudiants</a>
-            <a href="#" class="nav-link"><i class="fas fa-chart-line"></i> Statistiques</a>
-            <a href="#" class="nav-link"><i class="fas fa-cog"></i> Paramètres</a>
-            <div style="margin-top: auto; font-size: 0.8rem; opacity: 0.5;">v2.0 Beta - DevOps Project</div>
-        </div>
-
-        <div class="main">
-            <div class="header">
-                <h1>Gestion des Étudiants</h1>
-                <div style="color: #888;">Bienvenue, <strong>Minko Marc</strong></div>
-            </div>
-
-            <div class="grid">
-                <div class="card">
-                    <div class="icon-box bg-add"><i class="fas fa-user-plus"></i></div>
-                    <form action="/action/inscription" method="post">
-                        <button type="submit" class="btn-action">Nouvel Étudiant</button>
-                    </form>
-                </div>
-
-                <div class="card">
-                    <div class="icon-box bg-view"><i class="fas fa-search"></i></div>
-                    <form action="/action/consulter" method="post">
-                        <button type="submit" class="btn-action">Consulter Dossier</button>
-                    </form>
-                </div>
-
-                <div class="card">
-                    <div class="icon-box bg-edit"><i class="fas fa-user-edit"></i></div>
-                    <form action="/action/modifier" method="post">
-                        <button type="submit" class="btn-action">Mettre à Jour</button>
-                    </form>
-                </div>
-
-                <div class="card :hover">
-                    <div class="icon-box bg-del"><i class="fas fa-trash-alt"></i></div>
-                    <form action="/action/supprimer" method="post">
-                        <button type="submit" class="btn-action">Supprimer</button>
-                    </form>
-                </div>
-            </div>
-
-            <div class="status-bar">
-                <div class="pulse"></div>
-                <span>Système de Monitoring Prometheus Actif sur le port 9091</span>
-            </div>
-        </div>
-    </body>
-    </html>
-    """)
-
-@app.route('/action/<type_action>', methods=['POST'])
-def register_action(type_action):
-    STUDENT_ACTIONS.labels(action_type=type_action).inc()
-    return f"""
-    <style>
-        body {{ background: #1e3c72; color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }}
-        .msg {{ background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; text-align: center; }}
-        a {{ color: #00ff00; text-decoration: none; font-weight: bold; margin-top: 20px; display: block; }}
-    </style>
-    <div class="msg">
-        <h2>✅ Métrique envoyée !</h2>
-        <p>L'action <strong>{type_action}</strong> a été enregistrée dans Prometheus.</p>
-        <a href="/">← Retour au Dashboard</a>
-    </div>
-    """
+@app.route('/delete/<int:uid>', methods=['POST'])
+def delete(uid):
+    global students_db
+    students_db = [s for s in students_db if s['id'] != uid]
+    STUDENT_COUNT.set(len(students_db))
+    ACTIONS_TOTAL.labels(type='suppression').inc()
+    return redirect(url_for('home'))
 
 @app.route('/metrics')
 def metrics():
