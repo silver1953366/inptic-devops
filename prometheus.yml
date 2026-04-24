@@ -2,6 +2,12 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
+  # Métriques de ton application (les clics)
   - job_name: 'inptic-app'
     static_configs:
       - targets: ['app:5000']
+
+  # Métriques de l'infrastructure (CPU/RAM des conteneurs)
+  - job_name: 'containers-stats'
+    static_configs:
+      - targets: ['cadvisor:8080']
