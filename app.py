@@ -200,3 +200,4 @@ def metrics():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+# Cache-bust: lun. 27 avril 2026 07:17:40 CEST
