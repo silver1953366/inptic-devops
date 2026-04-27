@@ -10,7 +10,8 @@ DB_FILE = 'database.json'
 
 def init_db():
     if not os.path.exists(DB_FILE):
-        initial_data = [{"id": 1, "nom": "MINKO", "prenom": "Marc", "filiere": "Génie Info"}]
+        # On initialise avec une liste vide au lieu de l'étudiant par défaut
+        initial_data = [] 
         with open(DB_FILE, 'w') as f:
             json.dump(initial_data, f)
 
