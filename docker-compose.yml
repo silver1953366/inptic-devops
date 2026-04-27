@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: inptic-app:latest
     container_name: inptic-app
     ports:
       - "5000:5000"
